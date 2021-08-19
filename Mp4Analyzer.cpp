@@ -3,6 +3,9 @@
 
 #include <array>
 #include <iostream>
+#include <vector>
+
+#include "models/Mp4Boxes.hpp"
 
 Mp4Analyzer::Mp4Analyzer() {}
 
@@ -61,69 +64,6 @@ struct BLOCK {
 }
 
 namespace {
-    struct BoxHeader {
-        unsigned long int size {0};
-        std::string type;
-
-        std::string toString() const noexcept {
-            return type + " -> size: " + std::to_string(size);
-        }
-
-        bool isInit() const noexcept {
-            return size != 0 && !type.empty();
-        }
-    };
-
-    struct BoxInfo {
-        BoxHeader header;
-        unsigned int version {0};
-        unsigned int flags {0};
-
-        std::string toString() const {
-            return 
-                header.toString() + 
-                ", info -> version: "  + std::to_string(version) + 
-                ", flags: " + std::to_string(flags);
-        }
-    };
-
-    struct TfhdBox {
-        BoxInfo info;
-
-        unsigned int trackId {0};
-        unsigned long int baseDataOffset {0};
-        unsigned int sampleDescriptionIndex {0};
-        unsigned int defaultSampleDuration {0};
-        unsigned int defaultSampleSize {0};
-        unsigned int defaultSampleFlags {0};
-
-        bool durationIsEmpty {false};
-        bool defaultBaseIsMoof {false};
-
-        std::string toString() const {
-            return info.toString() +
-            ", track id: " + std::to_string(trackId) + ", " +
-            "base data offset: " + std::to_string(baseDataOffset) + ", " +
-            "sample description index: " + std::to_string(baseDataOffset) + ", " +
-            "default sample duration: " + std::to_string(baseDataOffset) + ", " +
-            "default sample size: " + std::to_string(baseDataOffset) + ", " +
-            "default sample flags: " + std::to_string(baseDataOffset);
-        }
-    };
-
-    struct TfdtBox {
-        BoxInfo info;
-        unsigned long int baseMediaDecodeTime;
-
-        std::string toString() const {
-            return info.toString() +
-                ", base media decode time: " + std::to_string(baseMediaDecodeTime);
-        }
-        
-    };
-}
-
-namespace {
 
     std::string generateOffset(size_t depth) {
         std::string result;
@@ -133,48 +73,53 @@ namespace {
         return result;
     }
 
-    std::function<void(std::fstream&, size_t, size_t, size_t, BoxHeader)> selectAction(const std::string& type);
+    auto boxHeaderReader = [](std::fstream& file, size_t startPos) {
+        Mp4Boxes::BoxHeader boxHeader;
+        BLOCK<4> block4Byte;
+
+        file.read((char*)&block4Byte.data[0], 4);
+        boxHeader.size = bytesToInt<unsigned int>(&block4Byte.data[0]);
+
+        file.read((char*)&block4Byte.data[0], 4);
+        boxHeader.type = block4Byte.toString();
+
+        if (boxHeader.size == 1) {
+            BLOCK<8> block8Byte;
+            file.read((char*)&block8Byte.data[0], 8);
+            boxHeader.size = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+        }
+
+        if (boxHeader.type == "uuid") {
+            /**
+             * @todo
+             * support block with uuid type
+             */
+            throw std::runtime_error("Block with type uuid unsupported yet");
+        }
+
+        return boxHeader;
+    };
+
+    std::function<void(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type);
 
     auto recursiveReader = [](
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
-                size_t depth,
-                BoxHeader header) {
+                Mp4Boxes::BoxHeader header) {
         size_t offset = startPos;
         if (header.isInit()) {
-            std::cout << generateOffset(depth) << header.toString() << std::endl;
+            std::cout << header.toString() << std::endl;
         }
         while (file.good() && offset < endPos) {
 
-            BoxHeader boxHeader;
-            BLOCK<4> block4Byte;
-
-            file.read((char*)&block4Byte.data[0], 4);
-            boxHeader.size = bytesToInt<unsigned int>(&block4Byte.data[0]);
-
-            file.read((char*)&block4Byte.data[0], 4);
-            boxHeader.type = block4Byte.toString();
-
-            if (boxHeader.size == 1) {
-                BLOCK<8> block8Byte;
-                file.read((char*)&block8Byte.data[0], 8);
-                boxHeader.size = bytesToInt<unsigned long int>(&block8Byte.data[0]);
-            }
-
-            if (boxHeader.type == "uuid") {
-                /**
-                 * @todo
-                 * support block with uuid type
-                 */
-                throw std::runtime_error("Block with type uuid unsupported yet");
-            }
+            auto boxHeader = boxHeaderReader(file, offset);
 
             auto action = selectAction(boxHeader.type);
             if (action) {
-                action(file, offset + 8, offset + boxHeader.size, depth + 1, boxHeader);
+                action(file, offset + 8, offset + boxHeader.size, boxHeader);
             } else {
-                std::cout << generateOffset(depth + 1) << boxHeader.toString() << " --- action not found" << std::endl;
+                std::cout << boxHeader.toString() << " --- action not found" << std::endl;
             }
 
             offset += boxHeader.size;
@@ -187,10 +132,9 @@ namespace {
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
-                size_t depth,
-                BoxHeader header) {
+                Mp4Boxes::BoxHeader header) {
         
-        BoxInfo boxInfo;
+        Mp4Boxes::BoxInfo boxInfo;
         boxInfo.header = header;
 
         BLOCK<1> block1Byte;
@@ -209,7 +153,7 @@ namespace {
         auto durationIsEmpty = boxInfo.flags & 0x00010000;
         auto defaultBaseIsMoof = boxInfo.flags & 0x00020000;
 
-        TfhdBox tfhdBox;
+        Mp4Boxes::TfhdBox tfhdBox;
         tfhdBox.info = boxInfo;
 
         BLOCK<4> block4Byte;
@@ -241,17 +185,16 @@ namespace {
         tfhdBox.durationIsEmpty = durationIsEmpty;
         tfhdBox.defaultBaseIsMoof = defaultBaseIsMoof;
 
-        std::cout << generateOffset(depth) << tfhdBox.toString() << std::endl;
+        std::cout << tfhdBox.toString() << std::endl;
     };
 
     auto tfdtReader = [](
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
-                size_t depth,
-                BoxHeader header) {
+                Mp4Boxes::BoxHeader header) {
         
-        BoxInfo boxInfo;
+        Mp4Boxes::BoxInfo boxInfo;
         boxInfo.header = header;
 
         BLOCK<1> block1Byte;
@@ -262,7 +205,7 @@ namespace {
         file.read((char*)&block3Byte.data[0], 3);
         boxInfo.flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
 
-        TfdtBox tftdBox;
+        Mp4Boxes::TfdtBox tftdBox;
         tftdBox.info = boxInfo;
 
         if (boxInfo.version == 1) {
@@ -275,10 +218,83 @@ namespace {
             tftdBox.baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
         }
 
-        std::cout << generateOffset(depth) << tftdBox.toString() << std::endl;
+        std::cout << tftdBox.toString() << std::endl;
     };
 
-    std::function<void(std::fstream&, size_t, size_t, size_t, BoxHeader)> selectAction(const std::string& type) {
+    auto trunReader = [](
+                std::fstream& file, 
+                size_t startPos, 
+                size_t endPos, 
+                Mp4Boxes::BoxHeader header) {
+        
+        Mp4Boxes::BoxInfo boxInfo;
+        boxInfo.header = header;
+
+        BLOCK<1> block1Byte;
+        file.read((char*)&block1Byte.data[0], 1);
+        boxInfo.version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
+
+        BLOCK<3> block3Byte;
+        file.read((char*)&block3Byte.data[0], 3);
+        boxInfo.flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+
+        auto dataOffsetPresent = boxInfo.flags & 0x00000001;
+        auto firstSampleFlagsPresent = boxInfo.flags & 0x00000004;
+        auto sampleDurationPresent = boxInfo.flags & 0x00000100;
+        auto sampleSizePresent = boxInfo.flags & 0x00000200;
+        auto sampleFlagsPresent = boxInfo.flags & 0x00000400;
+        auto sampleCompositionTimeOffsetPresent = boxInfo.flags & 0x00000800;
+
+        Mp4Boxes::TrunBox trunBox;
+        trunBox.info = boxInfo;
+
+        BLOCK<4> block4Byte;
+        file.read((char*)&block4Byte.data[0], 4);
+        trunBox.sampleCount = bytesToInt<unsigned int>(&block4Byte.data[0]);
+
+        if (dataOffsetPresent) {
+            file.read((char*)&block4Byte.data[0], 4);
+            trunBox.dataOffset = bytesToInt<int>(&block4Byte.data[0]);
+        }
+
+        if (firstSampleFlagsPresent) {
+            file.read((char*)&block4Byte.data[0], 4);
+            trunBox.firstSampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
+        }
+
+        for (unsigned int i = 0; i < trunBox.sampleCount; i++) {
+            Mp4Boxes::TrunBox::TrunSample sample;
+            if (sampleDurationPresent) {
+                file.read((char*)&block4Byte.data[0], 4);
+                sample.sampleDuration = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            }
+
+            if (sampleSizePresent) {
+                file.read((char*)&block4Byte.data[0], 4);
+                sample.sampleSize = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            }
+
+            if (sampleFlagsPresent) {
+                file.read((char*)&block4Byte.data[0], 4);
+                sample.sampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            }
+
+            if (boxInfo.version == 0) {
+                file.read((char*)&block4Byte.data[0], 4);
+                sample.sampleCompositionTimeOffset = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            }
+            else {
+                file.read((char*)&block4Byte.data[0], 4);
+                sample.sampleCompositionTimeOffsetSigned = bytesToInt<int>(&block4Byte.data[0]);
+            }
+
+            trunBox.samples.push_back(sample);
+        }
+
+        std::cout << trunBox.toString() << std::endl;
+    };
+
+    std::function<void(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type) {
         if (type == "moov") {
             return recursiveReader;
         } else if (type == "trak") {
@@ -303,6 +319,8 @@ namespace {
             return tfhdReader;
         } else if (type == "tfdt") {
             return tfdtReader;
+        } else if (type == "trun") {
+            return trunReader;
         } else if (type == "mfra") {
             return recursiveReader;
         } else if (type == "skip") {
@@ -339,5 +357,5 @@ void Mp4Analyzer::parse() {
         throw std::runtime_error("Target file doesn't open");
     }
 
-    recursiveReader(_file, 0, _length, 0, {});
+    recursiveReader(_file, 0, _length, {});
 }

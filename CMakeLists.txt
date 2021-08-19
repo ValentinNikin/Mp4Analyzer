@@ -9,6 +9,8 @@ add_executable(${PROJECT_NAME}
     main.cpp
     utils/CliParser.hpp
     utils/CliParser.cpp
+    models/Mp4Boxes.hpp
+    models/Mp4Boxes.cpp
     Mp4Analyzer.hpp
     Mp4Analyzer.cpp
 )
