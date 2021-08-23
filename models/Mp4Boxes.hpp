@@ -5,27 +5,35 @@
 #include <vector>
 
 namespace Mp4Boxes {
+
     struct BoxHeader {
         unsigned long int size {0};
         std::string type;
+    };
+    
+    struct Box {
+        explicit Box(BoxHeader bHeader);
+        ~Box();
 
-        std::string toString() const noexcept;
+        unsigned long int size {0};
+        std::string type;
 
-        bool isInit() const noexcept {
-            return size != 0 && !type.empty();
-        }
+        std::vector<Box*> children;
+
+        virtual std::string toString() const noexcept;
     };
 
-    struct BoxInfo {
-        BoxHeader header;
+    struct FullBox : Box {
+        explicit FullBox(BoxHeader bHeader);
+
         unsigned int version {0};
         unsigned int flags {0};
 
-        std::string toString() const;
+        std::string toString() const noexcept override;
     };
 
-    struct TfhdBox {
-        BoxInfo info;
+    struct TfhdBox : FullBox {
+        explicit TfhdBox(BoxHeader bHeader);
 
         unsigned int trackId {0};
         unsigned long int baseDataOffset {0};
@@ -37,17 +45,20 @@ namespace Mp4Boxes {
         bool durationIsEmpty {false};
         bool defaultBaseIsMoof {false};
 
-        std::string toString() const;
+        std::string toString() const noexcept override;
     };
 
-    struct TfdtBox {
-        BoxInfo info;
+    struct TfdtBox : FullBox {
+        explicit TfdtBox(BoxHeader bHeader);
+
         unsigned long int baseMediaDecodeTime;
 
-        std::string toString() const;
+        std::string toString() const noexcept override;
     };
 
-    struct TrunBox {
+    struct TrunBox : FullBox {
+        explicit TrunBox(BoxHeader bHeader);
+
         struct TrunSample {
             unsigned int sampleDuration {0};
             unsigned int sampleSize {0};
@@ -58,12 +69,11 @@ namespace Mp4Boxes {
             std::string toString() const;
         };
 
-        BoxInfo info;
         unsigned int sampleCount {0};
         int dataOffset {0};
         unsigned int firstSampleFlags {0};
         std::vector<TrunSample> samples;
 
-        std::string toString() const;
+        std::string toString() const noexcept override;
     };
 }

@@ -65,15 +65,7 @@ struct BLOCK {
 
 namespace {
 
-    std::string generateOffset(size_t depth) {
-        std::string result;
-        for (size_t i = 0; i < depth; i++) {
-            result += "--- ";
-        }
-        return result;
-    }
-
-    auto boxHeaderReader = [](std::fstream& file, size_t startPos) {
+    Mp4Boxes::BoxHeader readBoxHeader(std::fstream& file, size_t startPos) {
         Mp4Boxes::BoxHeader boxHeader;
         BLOCK<4> block4Byte;
 
@@ -98,28 +90,27 @@ namespace {
         }
 
         return boxHeader;
-    };
+    }
 
-    std::function<void(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type);
+    std::function<Mp4Boxes::Box*(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type);
 
-    auto recursiveReader = [](
+    Mp4Boxes::Box* recursiveReader(
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
                 Mp4Boxes::BoxHeader header) {
+        auto box = new Mp4Boxes::Box(header);
+
         size_t offset = startPos;
-        if (header.isInit()) {
-            std::cout << header.toString() << std::endl;
-        }
         while (file.good() && offset < endPos) {
 
-            auto boxHeader = boxHeaderReader(file, offset);
+            auto boxHeader = readBoxHeader(file, offset);
 
             auto action = selectAction(boxHeader.type);
             if (action) {
-                action(file, offset + 8, offset + boxHeader.size, boxHeader);
+                box->children.emplace_back(action(file, offset + 8, offset + boxHeader.size, boxHeader));
             } else {
-                std::cout << boxHeader.toString() << " --- action not found" << std::endl;
+                box->children.emplace_back(new Mp4Boxes::Box(boxHeader));
             }
 
             offset += boxHeader.size;
@@ -128,141 +119,129 @@ namespace {
         }
     };
 
-    auto tfhdReader = [](
+    Mp4Boxes::Box* tfhdReader(
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
                 Mp4Boxes::BoxHeader header) {
         
-        Mp4Boxes::BoxInfo boxInfo;
-        boxInfo.header = header;
+        auto tfhdBox = new Mp4Boxes::TfhdBox(header);
 
         BLOCK<1> block1Byte;
         file.read((char*)&block1Byte.data[0], 1);
-        boxInfo.version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
+        tfhdBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
 
         BLOCK<3> block3Byte;
         file.read((char*)&block3Byte.data[0], 3);
-        boxInfo.flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        tfhdBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
 
-        auto baseDataOffsetPresent = boxInfo.flags & 0x00000001;
-        auto sampleDescriptionIndexPresent = boxInfo.flags & 0x00000002;
-        auto defaultSampleDurationPresent = boxInfo.flags & 0x00000008;
-        auto defaultSampleSizePresent = boxInfo.flags & 0x00000010;
-        auto defaultSampleFlagsPresent = boxInfo.flags & 0x00000020;
-        auto durationIsEmpty = boxInfo.flags & 0x00010000;
-        auto defaultBaseIsMoof = boxInfo.flags & 0x00020000;
-
-        Mp4Boxes::TfhdBox tfhdBox;
-        tfhdBox.info = boxInfo;
+        auto baseDataOffsetPresent = tfhdBox->flags & 0x00000001;
+        auto sampleDescriptionIndexPresent = tfhdBox->flags & 0x00000002;
+        auto defaultSampleDurationPresent = tfhdBox->flags & 0x00000008;
+        auto defaultSampleSizePresent = tfhdBox->flags & 0x00000010;
+        auto defaultSampleFlagsPresent = tfhdBox->flags & 0x00000020;
+        auto durationIsEmpty = tfhdBox->flags & 0x00010000;
+        auto defaultBaseIsMoof = tfhdBox->flags & 0x00020000;
 
         BLOCK<4> block4Byte;
         BLOCK<8> block8Byte;
 
         file.read((char*)&block4Byte.data[0], 4);
-        tfhdBox.trackId = bytesToInt<unsigned int>(&block4Byte.data[0]);
+        tfhdBox->trackId = bytesToInt<unsigned int>(&block4Byte.data[0]);
 
         if (baseDataOffsetPresent) {
             file.read((char*)&block8Byte.data[0], 8);
-            tfhdBox.baseDataOffset = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+            tfhdBox->baseDataOffset = bytesToInt<unsigned long int>(&block8Byte.data[0]);
         }
 
         if (sampleDescriptionIndexPresent) {
             file.read((char*)&block4Byte.data[0], 4);
-            tfhdBox.sampleDescriptionIndex = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            tfhdBox->sampleDescriptionIndex = bytesToInt<unsigned int>(&block4Byte.data[0]);
         }
 
         if (defaultSampleSizePresent) {
             file.read((char*)&block4Byte.data[0], 4);
-            tfhdBox.defaultSampleSize = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            tfhdBox->defaultSampleSize = bytesToInt<unsigned int>(&block4Byte.data[0]);
         }
 
         if (defaultSampleFlagsPresent) {
             file.read((char*)&block4Byte.data[0], 4);
-            tfhdBox.defaultSampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            tfhdBox->defaultSampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
         }
 
-        tfhdBox.durationIsEmpty = durationIsEmpty;
-        tfhdBox.defaultBaseIsMoof = defaultBaseIsMoof;
+        tfhdBox->durationIsEmpty = durationIsEmpty;
+        tfhdBox->defaultBaseIsMoof = defaultBaseIsMoof;
 
-        std::cout << tfhdBox.toString() << std::endl;
+        std::cout << tfhdBox->toString() << std::endl;
     };
 
-    auto tfdtReader = [](
+    Mp4Boxes::Box* tfdtReader(
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
                 Mp4Boxes::BoxHeader header) {
         
-        Mp4Boxes::BoxInfo boxInfo;
-        boxInfo.header = header;
+        auto tfdtBox = new Mp4Boxes::TfdtBox(header);
 
         BLOCK<1> block1Byte;
         file.read((char*)&block1Byte.data[0], 1);
-        boxInfo.version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
+        tfdtBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
 
         BLOCK<3> block3Byte;
         file.read((char*)&block3Byte.data[0], 3);
-        boxInfo.flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        tfdtBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
 
-        Mp4Boxes::TfdtBox tftdBox;
-        tftdBox.info = boxInfo;
-
-        if (boxInfo.version == 1) {
+        if (tfdtBox->version == 1) {
             BLOCK<8> block8Byte;
             file.read((char*)&block8Byte.data[0], 8);
-            tftdBox.baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
         } else {
             BLOCK<4> block8Byte;
             file.read((char*)&block8Byte.data[0], 4);
-            tftdBox.baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
         }
 
-        std::cout << tftdBox.toString() << std::endl;
+        std::cout << tfdtBox->toString() << std::endl;
     };
 
-    auto trunReader = [](
+    Mp4Boxes::Box* trunReader(
                 std::fstream& file, 
                 size_t startPos, 
                 size_t endPos, 
                 Mp4Boxes::BoxHeader header) {
         
-        Mp4Boxes::BoxInfo boxInfo;
-        boxInfo.header = header;
+        auto trunBox = new Mp4Boxes::TrunBox(header);
 
         BLOCK<1> block1Byte;
         file.read((char*)&block1Byte.data[0], 1);
-        boxInfo.version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
+        trunBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
 
         BLOCK<3> block3Byte;
         file.read((char*)&block3Byte.data[0], 3);
-        boxInfo.flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        trunBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
 
-        auto dataOffsetPresent = boxInfo.flags & 0x00000001;
-        auto firstSampleFlagsPresent = boxInfo.flags & 0x00000004;
-        auto sampleDurationPresent = boxInfo.flags & 0x00000100;
-        auto sampleSizePresent = boxInfo.flags & 0x00000200;
-        auto sampleFlagsPresent = boxInfo.flags & 0x00000400;
-        auto sampleCompositionTimeOffsetPresent = boxInfo.flags & 0x00000800;
-
-        Mp4Boxes::TrunBox trunBox;
-        trunBox.info = boxInfo;
+        auto dataOffsetPresent = trunBox->flags & 0x00000001;
+        auto firstSampleFlagsPresent = trunBox->flags & 0x00000004;
+        auto sampleDurationPresent = trunBox->flags & 0x00000100;
+        auto sampleSizePresent = trunBox->flags & 0x00000200;
+        auto sampleFlagsPresent = trunBox->flags & 0x00000400;
+        auto sampleCompositionTimeOffsetPresent = trunBox->flags & 0x00000800;
 
         BLOCK<4> block4Byte;
         file.read((char*)&block4Byte.data[0], 4);
-        trunBox.sampleCount = bytesToInt<unsigned int>(&block4Byte.data[0]);
+        trunBox->sampleCount = bytesToInt<unsigned int>(&block4Byte.data[0]);
 
         if (dataOffsetPresent) {
             file.read((char*)&block4Byte.data[0], 4);
-            trunBox.dataOffset = bytesToInt<int>(&block4Byte.data[0]);
+            trunBox->dataOffset = bytesToInt<int>(&block4Byte.data[0]);
         }
 
         if (firstSampleFlagsPresent) {
             file.read((char*)&block4Byte.data[0], 4);
-            trunBox.firstSampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
+            trunBox->firstSampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
         }
 
-        for (unsigned int i = 0; i < trunBox.sampleCount; i++) {
+        for (unsigned int i = 0; i < trunBox->sampleCount; i++) {
             Mp4Boxes::TrunBox::TrunSample sample;
             if (sampleDurationPresent) {
                 file.read((char*)&block4Byte.data[0], 4);
@@ -279,7 +258,7 @@ namespace {
                 sample.sampleFlags = bytesToInt<unsigned int>(&block4Byte.data[0]);
             }
 
-            if (boxInfo.version == 0) {
+            if (trunBox->version == 0) {
                 file.read((char*)&block4Byte.data[0], 4);
                 sample.sampleCompositionTimeOffset = bytesToInt<unsigned int>(&block4Byte.data[0]);
             }
@@ -288,13 +267,13 @@ namespace {
                 sample.sampleCompositionTimeOffsetSigned = bytesToInt<int>(&block4Byte.data[0]);
             }
 
-            trunBox.samples.push_back(sample);
+            trunBox->samples.push_back(sample);
         }
 
-        std::cout << trunBox.toString() << std::endl;
+        std::cout << trunBox->toString() << std::endl;
     };
 
-    std::function<void(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type) {
+    std::function<Mp4Boxes::Box*(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type) {
         if (type == "moov") {
             return recursiveReader;
         } else if (type == "trak") {
@@ -357,5 +336,5 @@ void Mp4Analyzer::parse() {
         throw std::runtime_error("Target file doesn't open");
     }
 
-    recursiveReader(_file, 0, _length, {});
+    auto rootBox = recursiveReader(_file, 0, _length, { _length, "root" });
 }
