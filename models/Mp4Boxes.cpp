@@ -25,6 +25,14 @@ std::string Mp4Boxes::FullBox::toString() const noexcept {
         "\r\n\r\tflags: " + std::to_string(flags) + "\r\n";
 }
 
+Mp4Boxes::MfhdBox::MfhdBox(Mp4Boxes::BoxHeader bHeader)
+    : FullBox{bHeader} {}
+
+std::string Mp4Boxes::MfhdBox::toString() const noexcept {
+    return FullBox::toString() +
+        "\r\tsequence number: " + std::to_string(sequenceNumber) + "\r\n";
+}
+
 Mp4Boxes::TfhdBox::TfhdBox(Mp4Boxes::BoxHeader bHeader)
     : FullBox{bHeader} {}
 

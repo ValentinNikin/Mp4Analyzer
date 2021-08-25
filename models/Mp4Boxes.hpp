@@ -32,6 +32,14 @@ namespace Mp4Boxes {
         std::string toString() const noexcept override;
     };
 
+    struct MfhdBox : FullBox {
+        explicit MfhdBox(BoxHeader bHeader);
+
+        unsigned int sequenceNumber {0};
+
+        std::string toString() const noexcept override;
+    };
+
     struct TfhdBox : FullBox {
         explicit TfhdBox(BoxHeader bHeader);
 

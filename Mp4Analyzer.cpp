@@ -92,6 +92,16 @@ namespace {
         return boxHeader;
     }
 
+    void readFullBox(std::fstream& file, Mp4Boxes::FullBox* box) {
+        BLOCK<1> block1Byte;
+        file.read((char*)&block1Byte.data[0], 1);
+        box->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
+
+        BLOCK<3> block3Byte;
+        file.read((char*)&block3Byte.data[0], 3);
+        box->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+    }
+
     std::function<Mp4Boxes::Box*(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type);
 
     Mp4Boxes::Box* recursiveReader(
@@ -117,6 +127,27 @@ namespace {
 
             file.seekg(offset, std::ios_base::beg);
         }
+
+        return box;
+    };
+
+    Mp4Boxes::Box* mfhdReader(
+                std::fstream& file, 
+                size_t startPos, 
+                size_t endPos, 
+                Mp4Boxes::BoxHeader header) {
+        
+        auto mfhdBox = new Mp4Boxes::MfhdBox(header);
+
+        readFullBox(file, mfhdBox);
+
+        BLOCK<4> block4Byte;
+        file.read((char*)&block4Byte.data[0], 4);
+        mfhdBox->sequenceNumber = bytesToInt<unsigned int>(&block4Byte.data[0]);
+
+        std::cout << mfhdBox->toString() << std::endl;
+
+        return mfhdBox;
     };
 
     Mp4Boxes::Box* tfhdReader(
@@ -127,13 +158,7 @@ namespace {
         
         auto tfhdBox = new Mp4Boxes::TfhdBox(header);
 
-        BLOCK<1> block1Byte;
-        file.read((char*)&block1Byte.data[0], 1);
-        tfhdBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
-
-        BLOCK<3> block3Byte;
-        file.read((char*)&block3Byte.data[0], 3);
-        tfhdBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        readFullBox(file, tfhdBox);
 
         auto baseDataOffsetPresent = tfhdBox->flags & 0x00000001;
         auto sampleDescriptionIndexPresent = tfhdBox->flags & 0x00000002;
@@ -173,6 +198,8 @@ namespace {
         tfhdBox->defaultBaseIsMoof = defaultBaseIsMoof;
 
         std::cout << tfhdBox->toString() << std::endl;
+
+        return tfhdBox;
     };
 
     Mp4Boxes::Box* tfdtReader(
@@ -183,25 +210,21 @@ namespace {
         
         auto tfdtBox = new Mp4Boxes::TfdtBox(header);
 
-        BLOCK<1> block1Byte;
-        file.read((char*)&block1Byte.data[0], 1);
-        tfdtBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
-
-        BLOCK<3> block3Byte;
-        file.read((char*)&block3Byte.data[0], 3);
-        tfdtBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        readFullBox(file, tfdtBox);
 
         if (tfdtBox->version == 1) {
             BLOCK<8> block8Byte;
             file.read((char*)&block8Byte.data[0], 8);
-            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned long>(&block8Byte.data[0]);
         } else {
-            BLOCK<4> block8Byte;
-            file.read((char*)&block8Byte.data[0], 4);
-            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned long int>(&block8Byte.data[0]);
+            BLOCK<4> block4Byte;
+            file.read((char*)&block4Byte.data[0], 4);
+            tfdtBox->baseMediaDecodeTime = bytesToInt<unsigned int>(&block4Byte.data[0]);
         }
 
         std::cout << tfdtBox->toString() << std::endl;
+
+        return tfdtBox;
     };
 
     Mp4Boxes::Box* trunReader(
@@ -212,13 +235,7 @@ namespace {
         
         auto trunBox = new Mp4Boxes::TrunBox(header);
 
-        BLOCK<1> block1Byte;
-        file.read((char*)&block1Byte.data[0], 1);
-        trunBox->version = bytesToInt<unsigned int>(&block1Byte.data[0], 1);
-
-        BLOCK<3> block3Byte;
-        file.read((char*)&block3Byte.data[0], 3);
-        trunBox->flags = bytesToInt<unsigned int>(&block3Byte.data[0], 3);
+        readFullBox(file, trunBox);
 
         auto dataOffsetPresent = trunBox->flags & 0x00000001;
         auto firstSampleFlagsPresent = trunBox->flags & 0x00000004;
@@ -271,6 +288,8 @@ namespace {
         }
 
         std::cout << trunBox->toString() << std::endl;
+
+        return trunBox;
     };
 
     std::function<Mp4Boxes::Box*(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type) {
@@ -292,6 +311,8 @@ namespace {
             return recursiveReader;
         } else if (type == "moof") {
             return recursiveReader;
+        } else if (type == "mfhd") {
+            return mfhdReader;
         } else if (type == "traf") {
             return recursiveReader;
         } else if (type == "tfhd") {
@@ -337,4 +358,7 @@ void Mp4Analyzer::parse() {
     }
 
     auto rootBox = recursiveReader(_file, 0, _length, { _length, "root" });
+
+    auto trunBox = (Mp4Boxes::TrunBox*)rootBox->children[0]->children[1]->children[2];
+    auto dataOffset = trunBox->dataOffset;
 }
