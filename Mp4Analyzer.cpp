@@ -131,6 +131,41 @@ namespace {
         return box;
     };
 
+    Mp4Boxes::Box* ftypReader(
+                std::fstream& file, 
+                size_t startPos, 
+                size_t endPos, 
+                Mp4Boxes::BoxHeader header) {
+        auto ftypBox = new Mp4Boxes::FtypBox(header);
+
+        size_t offset = startPos;
+
+        BLOCK<4> block4Byte;
+        file.read((char*)&block4Byte.data[0], 4);
+        ftypBox->majorBrand = block4Byte.toString();
+
+        file.read((char*)&block4Byte.data[0], 4);
+        ftypBox->minorVersion = bytesToInt<unsigned int>(&block4Byte.data[0]);
+
+        offset += 8;
+
+        while (offset < endPos) {
+            file.read((char*)&block4Byte.data[0], 4);
+
+            if (file.gcount() == 4) {
+                ftypBox->compatibleBrands.push_back(block4Byte.toString());
+            }
+
+            offset += file.gcount();
+        }
+        
+        auto ftyp = ftypBox->toString();
+
+        std::cout << ftyp << std::endl;
+
+        return ftypBox;
+    }
+
     Mp4Boxes::Box* mfhdReader(
                 std::fstream& file, 
                 size_t startPos, 
@@ -293,7 +328,9 @@ namespace {
     };
 
     std::function<Mp4Boxes::Box*(std::fstream&, size_t, size_t, Mp4Boxes::BoxHeader)> selectAction(const std::string& type) {
-        if (type == "moov") {
+        if (type == "ftyp") {
+            return ftypReader;
+        } else if (type == "moov") {
             return recursiveReader;
         } else if (type == "trak") {
             return recursiveReader;
@@ -359,6 +396,6 @@ void Mp4Analyzer::parse() {
 
     auto rootBox = recursiveReader(_file, 0, _length, { _length, "root" });
 
-    auto trunBox = (Mp4Boxes::TrunBox*)rootBox->children[0]->children[1]->children[2];
-    auto dataOffset = trunBox->dataOffset;
+    /*auto trunBox = (Mp4Boxes::TrunBox*)rootBox->children[0]->children[1]->children[2];
+    auto dataOffset = trunBox->dataOffset;*/
 }

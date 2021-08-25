@@ -1,6 +1,8 @@
 
 #include "Mp4Boxes.hpp"
 
+#include <numeric>
+
 Mp4Boxes::Box::Box(Mp4Boxes::BoxHeader bHeader)
     : size{bHeader.size},
     type{bHeader.type} {}
@@ -23,6 +25,25 @@ std::string Mp4Boxes::FullBox::toString() const noexcept {
         Box::toString() + 
         "\r\tversion: "  + std::to_string(version) + 
         "\r\n\r\tflags: " + std::to_string(flags) + "\r\n";
+}
+
+Mp4Boxes::FtypBox::FtypBox(BoxHeader bHeader)
+    : Box{bHeader} {}
+
+std::string Mp4Boxes::FtypBox::toString() const noexcept {
+    auto compatibleBrandsStr = std::accumulate(
+        std::next(compatibleBrands.cbegin()),
+        compatibleBrands.cend(),
+        compatibleBrands[0],
+        [](std::string res, std::string item) {
+            return res + "," + item;
+        }
+    );
+    auto str = Box::toString() + 
+        "\r\tmajor brand: "  + majorBrand + 
+        "\r\n\r\tminor brand: "  + std::to_string(minorVersion) + 
+        "\r\n\r\tcompatible brands: "  + compatibleBrandsStr;
+    return str;
 }
 
 Mp4Boxes::MfhdBox::MfhdBox(Mp4Boxes::BoxHeader bHeader)

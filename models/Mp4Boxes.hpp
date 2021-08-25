@@ -32,6 +32,16 @@ namespace Mp4Boxes {
         std::string toString() const noexcept override;
     };
 
+    struct FtypBox : Box {
+        explicit FtypBox(BoxHeader bHeader);
+
+        std::string majorBrand;
+        unsigned int minorVersion {0};
+        std::vector<std::string> compatibleBrands;
+
+        std::string toString() const noexcept override;
+    };
+
     struct MfhdBox : FullBox {
         explicit MfhdBox(BoxHeader bHeader);
 
